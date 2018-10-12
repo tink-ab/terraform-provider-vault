@@ -42,12 +42,6 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description: "Specifies if the connection is verified during initial configuration.",
 				Default:     true,
 			},
-			"rotate_password_on_change": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				Description: "Specifies if the root credentials should be rotated after changes.",
-				Default:     false,
-			},
 			"allowed_roles": {
 				Type:        schema.TypeList,
 				Optional:    true,
@@ -300,7 +294,7 @@ func getDatabasePluginName(d *schema.ResourceData) (string, error) {
 	}
 }
 
-func getDatabaseAPIData(d *schema.ResourceData, includePassword bool) (map[string]interface{}, error) {
+func getDatabaseAPIData(d *schema.ResourceData) (map[string]interface{}, error) {
 	plugin, err := getDatabasePluginName(d)
 	if err != nil {
 		return nil, err
@@ -350,7 +344,7 @@ func getDatabaseAPIData(d *schema.ResourceData, includePassword bool) (map[strin
 			data["connect_timeout"] = v.(int)
 		}
 	case "hana-database-plugin":
-		setDatabaseConnectionData(d, "hana.0.", includePassword, data)
+		setDatabaseConnectionData(d, "hana.0.", true, data)
 	case "mongodb-database-plugin":
 		if v, ok := d.GetOk("mongodb.0.connection_url"); ok {
 			data["connection_url"] = v.(string)
@@ -358,23 +352,23 @@ func getDatabaseAPIData(d *schema.ResourceData, includePassword bool) (map[strin
 		if v, ok := d.GetOk("mongodb.0.username"); ok {
 			data["username"] = v.(string)
 		}
-		if v, ok := d.GetOk("mongodb.0.password"); ok && includePassword {
+		if v, ok := d.GetOk("mongodb.0.password"); ok && d.HasChange("mongodb.0.password") {
 			data["password"] = v.(string)
 		}
 	case "mssql-database-plugin":
-		setDatabaseConnectionData(d, "mssql.0.", includePassword, data)
+		setDatabaseConnectionData(d, "mssql.0.", true, data)
 	case "mysql-database-plugin":
-		setDatabaseConnectionData(d, "mysql.0.", includePassword, data)
+		setDatabaseConnectionData(d, "mysql.0.", true, data)
 	case "mysql-rds-database-plugin":
-		setDatabaseConnectionData(d, "mysql_rds.0.", includePassword, data)
+		setDatabaseConnectionData(d, "mysql_rds.0.", true, data)
 	case "mysql-aurora-database-plugin":
-		setDatabaseConnectionData(d, "mysql_aurora.0.", includePassword, data)
+		setDatabaseConnectionData(d, "mysql_aurora.0.", true, data)
 	case "mysql-legacy-database-plugin":
-		setDatabaseConnectionData(d, "mysql_legacy.0.", includePassword, data)
+		setDatabaseConnectionData(d, "mysql_legacy.0.", true, data)
 	case "oracle-database-plugin":
 		setDatabaseConnectionData(d, "oracle.0.", false, data)
 	case "postgresql-database-plugin":
-		setDatabaseConnectionData(d, "postgresql.0.", includePassword, data)
+		setDatabaseConnectionData(d, "postgresql.0.", true, data)
 	}
 
 	return data, nil
@@ -426,7 +420,7 @@ func getConnectionDetailsFromResponse(d *schema.ResourceData, prefix string, res
 	return []map[string]interface{}{result}
 }
 
-func setDatabaseConnectionData(d *schema.ResourceData, prefix string, includePassword bool, data map[string]interface{}) {
+func setDatabaseConnectionData(d *schema.ResourceData, prefix string, includeCredentials bool, data map[string]interface{}) {
 	if v, ok := d.GetOk(prefix + "connection_url"); ok {
 		data["connection_url"] = v.(string)
 	}
@@ -440,11 +434,14 @@ func setDatabaseConnectionData(d *schema.ResourceData, prefix string, includePas
 		data["max_connection_lifetime"] = fmt.Sprintf("%ds", v)
 	}
 
-	if v, ok := d.GetOk(prefix + "username"); ok {
-		data["username"] = v.(string)
-	}
-	if v, ok := d.GetOk(prefix + "password"); ok && includePassword {
-		data["password"] = v.(string)
+	if includeCredentials {
+		if v, ok := d.GetOk(prefix + "username"); ok {
+			data["username"] = v.(string)
+		}
+		passwordKey := prefix + "password"
+		if v, ok := d.GetOk(passwordKey); ok && d.HasChange(passwordKey) {
+			data["password"] = v.(string)
+		}
 	}
 }
 
@@ -456,7 +453,7 @@ func databaseSecretBackendConnectionCreate(d *schema.ResourceData, meta interfac
 
 	path := databaseSecretBackendConnectionPath(backend, name)
 
-	data, err := getDatabaseAPIData(d, true)
+	data, err := getDatabaseAPIData(d)
 	if err != nil {
 		return err
 	}
@@ -482,16 +479,7 @@ func databaseSecretBackendConnectionCreate(d *schema.ResourceData, meta interfac
 	d.SetId(path)
 	log.Printf("[DEBUG] Wrote database connection config %q", path)
 
-	if err = databaseSecretBackendConnectionRead(d, meta); err != nil {
-		d.Set("rotate_password_on_change", false)
-		return err
-	}
-
-	if d.Get("rotate_password_on_change").(bool) {
-		return databaseSecretBackendConnectionRotateRootPassword(d, client)
-	}
-
-	return nil
+	return databaseSecretBackendConnectionRead(d, meta)
 }
 
 func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{}) error {
@@ -636,8 +624,7 @@ func databaseSecretBackendConnectionUpdate(d *schema.ResourceData, meta interfac
 
 	path := databaseSecretBackendConnectionPath(backend, name)
 
-	includePassword := !d.Get("rotate_password_on_change").(bool)
-	data, err := getDatabaseAPIData(d, includePassword)
+	data, err := getDatabaseAPIData(d)
 	if err != nil {
 		return err
 	}
@@ -664,10 +651,6 @@ func databaseSecretBackendConnectionUpdate(d *schema.ResourceData, meta interfac
 
 	if err = databaseSecretBackendConnectionRead(d, meta); err != nil {
 		return err
-	}
-
-	if d.Get("rotate_password_on_change").(bool) {
-		return databaseSecretBackendConnectionRotateRootPassword(d, client)
 	}
 
 	return nil
@@ -699,25 +682,6 @@ func databaseSecretBackendConnectionExists(d *schema.ResourceData, meta interfac
 	}
 	log.Printf("[DEBUG] Checked if database connection config %q exists", path)
 	return resp != nil, nil
-}
-
-func databaseSecretBackendConnectionRotateRootPassword(d *schema.ResourceData, client *api.Client) error {
-	d.Set("rotate_password_on_change", false)
-
-	backend := d.Get("backend").(string)
-	name := d.Get("name").(string)
-	path := databaseSecretBackendRotatePath(backend, name)
-	_, err := client.RawRequest(client.NewRequest("POST", path))
-	if err != nil {
-		return err
-	}
-
-	d.Set("rotate_password_on_change", true)
-	return nil
-}
-
-func databaseSecretBackendRotatePath(backend, name string) string {
-	return "/v1/" + strings.Trim(backend, "/") + "/rotate-root/" + strings.Trim(name, "/")
 }
 
 func databaseSecretBackendConnectionPath(backend, name string) string {

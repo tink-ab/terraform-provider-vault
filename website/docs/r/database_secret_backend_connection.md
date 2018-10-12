@@ -37,6 +37,30 @@ resource "vault_database_secret_backend_connection" "postgres" {
 }
 ```
 
+Alternatively you can use a templated `connection_url`:
+
+```hcl
+resource "vault_mount" "database" {
+  path = "database"
+  type = "database"
+}
+
+resource "vault_database_secret_backend_connection" "mysql" {
+  backend = "database"
+  name    = "mysql"
+
+  allowed_roles = [
+    "*",
+  ]
+
+  mysql {
+    connection_url = "{{username}}:{{password}}@tcp(host:port)/"
+    username       = "username"
+    password       = "password"
+  }
+}
+```
+
 ## Argument Reference
 
 The following arguments are supported:
@@ -106,12 +130,20 @@ Exactly one of the nested blocks of configuration options must be supplied.
   docs](https://www.vaultproject.io/api/secret/databases/mongodb.html#sample-payload)
   for an example.
 
+* `username` - (Optional) The username to authenticate with.
+
+* `password` - (Optional) The password to authenticate with.
+
 ### SAP HanaDB Configuration Options
 
 * `connection_url` - (Required) A URL containing connection information. See
   the [Vault
   docs](https://www.vaultproject.io/api/secret/databases/hanadb.html#sample-payload)
   for an example.
+
+* `username` - (Optional) The username to authenticate with.
+
+* `password` - (Optional) The password to authenticate with.
 
 * `max_open_connections` - (Optional) The maximum number of open connections to
   use.
@@ -129,6 +161,10 @@ Exactly one of the nested blocks of configuration options must be supplied.
   docs](https://www.vaultproject.io/api/secret/databases/mssql.html#sample-payload)
   for an example.
 
+* `username` - (Optional) The username to authenticate with.
+
+* `password` - (Optional) The password to authenticate with.
+
 * `max_open_connections` - (Optional) The maximum number of open connections to
   use.
 
@@ -145,6 +181,10 @@ Exactly one of the nested blocks of configuration options must be supplied.
   docs](https://www.vaultproject.io/api/secret/databases/mysql.html#sample-payload)
   for an example.
 
+* `username` - (Optional) The username to authenticate with.
+
+* `password` - (Optional) The password to authenticate with.
+
 * `max_open_connections` - (Optional) The maximum number of open connections to
   use.
 
@@ -160,6 +200,10 @@ Exactly one of the nested blocks of configuration options must be supplied.
   the [Vault
   docs](https://www.vaultproject.io/api/secret/databases/postgresql.html#sample-payload)
   for an example.
+
+* `username` - (Optional) The username to authenticate with.
+
+* `password` - (Optional) The password to authenticate with.
 
 * `max_open_connections` - (Optional) The maximum number of open connections to
   use.
