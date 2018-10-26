@@ -322,7 +322,7 @@ func getDatabaseAPIData(d *schema.ResourceData) (map[string]interface{}, error) 
 		if v, ok := d.GetOk("cassandra.0.username"); ok {
 			data["username"] = v.(string)
 		}
-		if v, ok := d.GetOk("cassandra.0.password"); ok {
+		if v, ok := d.GetOk("cassandra.0.password"); ok && d.HasChange("cassandra.0.password") {
 			data["password"] = v.(string)
 		}
 		if v, ok := d.GetOkExists("cassandra.0.tls"); ok {
