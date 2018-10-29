@@ -548,7 +548,7 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 			}
 			if v, ok := data["password"]; ok {
 				result["password"] = v.(string)
-			} else if v, ok := d.GetOk("cassandra.0.password"); ok {
+			} else if v, ok := d.GetOkExists("cassandra.0.password"); ok {
 				// keep the password we have in state/config if the API doesn't return one
 				result["password"] = v.(string)
 			}
