@@ -529,8 +529,10 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 			if v, ok := data["username"]; ok {
 				result["username"] = v.(string)
 			}
-			if v, ok := data["password"]; ok {
-				result["password"] = v.(string)
+			// Vault does not return the password. Setting the state to the password in the resource
+			// to avoid a diff between state and reality
+			if v, ok := d.GetOkExists("cassandra.0.password"); ok {
+				result["password"] = v
 			}
 			if v, ok := data["tls"]; ok {
 				result["tls"] = v.(bool)
