@@ -6,9 +6,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/hashicorp/terraform/helper/hashcode"
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/hashcode"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/vault/api"
+	"github.com/terraform-providers/terraform-provider-vault/util"
 )
 
 var oktaAuthType = "okta"
@@ -89,10 +90,11 @@ func oktaAuthBackendResource() *schema.Resource {
 			},
 
 			"group": {
-				Type:     schema.TypeSet,
-				Required: false,
-				Optional: true,
-				Computed: true,
+				Type:       schema.TypeSet,
+				Required:   false,
+				Optional:   true,
+				Computed:   true,
+				ConfigMode: schema.SchemaConfigModeAttr,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"group_name": {
@@ -132,10 +134,11 @@ func oktaAuthBackendResource() *schema.Resource {
 			},
 
 			"user": {
-				Type:     schema.TypeSet,
-				Required: false,
-				Optional: true,
-				Computed: true,
+				Type:       schema.TypeSet,
+				Required:   false,
+				Optional:   true,
+				Computed:   true,
+				ConfigMode: schema.SchemaConfigModeAttr,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"groups": {
@@ -191,6 +194,12 @@ func oktaAuthBackendResource() *schema.Resource {
 				},
 				Set: resourceOktaUserHash,
 			},
+
+			"accessor": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "The mount accessor related to the auth mount.",
+			},
 		},
 	}
 }
@@ -204,14 +213,19 @@ func oktaAuthBackendWrite(d *schema.ResourceData, meta interface{}) error {
 
 	log.Printf("[DEBUG] Writing auth %s to Vault", authType)
 
-	err := client.Sys().EnableAuth(path, authType, desc)
+	// client.Sys().EnableAuth() is deprecated.
+	//err := client.Sys().EnableAuth(path, authType, desc)
+	err := client.Sys().EnableAuthWithOptions(path, &api.EnableAuthOptions{
+		Type:        authType,
+		Description: desc,
+	})
 
 	if err != nil {
 		return fmt.Errorf("error writing to Vault: %s", err)
 	}
+	log.Printf("[INFO] Enabled okta auth backend at '%s'", path)
 
 	d.SetId(path)
-
 	return oktaAuthBackendUpdate(d, meta)
 }
 
@@ -248,6 +262,13 @@ func oktaAuthBackendRead(d *schema.ResourceData, meta interface{}) error {
 		d.SetId("")
 		return nil
 	}
+
+	mount, err := authMountInfoGet(client, path)
+	if err != nil {
+		return fmt.Errorf("error reading okta oth mount from '%q': %s", path, err)
+	}
+
+	d.Set("accessor", mount.Accessor)
 
 	log.Printf("[DEBUG] Reading groups for mount %s from Vault", path)
 	groups, err := oktaReadAllGroups(client, path)
@@ -403,7 +424,7 @@ func oktaAuthUpdateGroups(d *schema.ResourceData, client *api.Client, path strin
 
 		group := oktaGroup{
 			Name:     groupName,
-			Policies: toStringArray(groupMapping["policies"].(*schema.Set).List()),
+			Policies: util.ToStringArray(groupMapping["policies"].(*schema.Set).List()),
 		}
 
 		if err := updateOktaGroup(client, path, group); err != nil {
@@ -438,8 +459,8 @@ func oktaAuthUpdateUsers(d *schema.ResourceData, client *api.Client, path string
 
 		user := oktaUser{
 			Username: userName,
-			Policies: toStringArray(userMapping["policies"].(*schema.Set).List()),
-			Groups:   toStringArray(userMapping["groups"].(*schema.Set).List()),
+			Policies: util.ToStringArray(userMapping["policies"].(*schema.Set).List()),
+			Groups:   util.ToStringArray(userMapping["groups"].(*schema.Set).List()),
 		}
 
 		if err := updateOktaUser(client, path, user); err != nil {

@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
 	"github.com/hashicorp/vault/api"
 )
@@ -20,6 +20,13 @@ func genericSecretDataSource() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				Description: "Full path from which a secret will be read.",
+			},
+
+			"version": {
+				Type:     schema.TypeInt,
+				Required: false,
+				Optional: true,
+				Default:  latestSecretVersion,
 			},
 
 			"data_json": {
@@ -66,8 +73,10 @@ func genericSecretDataSourceRead(d *schema.ResourceData, meta interface{}) error
 
 	path := d.Get("path").(string)
 
-	log.Printf("[DEBUG] Reading %s from Vault", path)
-	secret, err := client.Logical().Read(path)
+	secretVersion := d.Get("version").(int)
+	log.Printf("[DEBUG] Reading %s %d from Vault", path, secretVersion)
+
+	secret, err := versionedSecret(secretVersion, path, client)
 	if err != nil {
 		return fmt.Errorf("error reading from Vault: %s", err)
 	}

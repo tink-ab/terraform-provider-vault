@@ -1,12 +1,11 @@
 package vault
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"strings"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -31,18 +30,12 @@ func authBackendResource() *schema.Resource {
 			},
 
 			"path": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Computed:    true,
-				ForceNew:    true,
-				Description: "path to mount the backend. This defaults to the type.",
-				ValidateFunc: func(v interface{}, k string) (ws []string, errs []error) {
-					value := v.(string)
-					if strings.HasSuffix(value, "/") {
-						errs = append(errs, errors.New("cannot write to a path ending in '/'"))
-					}
-					return
-				},
+				Type:         schema.TypeString,
+				Optional:     true,
+				Computed:     true,
+				ForceNew:     true,
+				Description:  "path to mount the backend. This defaults to the type.",
+				ValidateFunc: validateNoTrailingSlash,
 				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
 					return old+"/" == new || new+"/" == old
 				},
@@ -55,7 +48,39 @@ func authBackendResource() *schema.Resource {
 				Description: "The description of the auth backend",
 			},
 
-			"accessor": &schema.Schema{
+			"default_lease_ttl_seconds": {
+				Type:        schema.TypeInt,
+				Required:    false,
+				Optional:    true,
+				Computed:    true,
+				ForceNew:    true,
+				Description: "Default lease duration in seconds",
+			},
+
+			"max_lease_ttl_seconds": {
+				Type:        schema.TypeInt,
+				Required:    false,
+				Optional:    true,
+				Computed:    true,
+				ForceNew:    true,
+				Description: "Maximum possible lease duration in seconds",
+			},
+
+			"listing_visibility": {
+				Type:        schema.TypeString,
+				ForceNew:    true,
+				Optional:    true,
+				Description: "Specifies whether to show this mount in the UI-specific listing endpoint",
+			},
+
+			"local": {
+				Type:        schema.TypeBool,
+				ForceNew:    true,
+				Optional:    true,
+				Description: "Specifies if the auth method is local only",
+			},
+
+			"accessor": {
 				Type:        schema.TypeString,
 				Computed:    true,
 				Description: "The accessor of the auth backend",
@@ -67,19 +92,27 @@ func authBackendResource() *schema.Resource {
 func authBackendWrite(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*api.Client)
 
-	name := d.Get("type").(string)
-	desc := d.Get("description").(string)
+	mountType := d.Get("type").(string)
 	path := d.Get("path").(string)
 
+	options := &api.EnableAuthOptions{
+		Type:        mountType,
+		Description: d.Get("description").(string),
+		Config: api.AuthConfigInput{
+			DefaultLeaseTTL:   fmt.Sprintf("%ds", d.Get("default_lease_ttl_seconds")),
+			MaxLeaseTTL:       fmt.Sprintf("%ds", d.Get("max_lease_ttl_seconds")),
+			ListingVisibility: d.Get("listing_visibility").(string),
+		},
+		Local: d.Get("local").(bool),
+	}
+
 	if path == "" {
-		path = name
+		path = mountType
 	}
 
 	log.Printf("[DEBUG] Writing auth %q to Vault", path)
 
-	err := client.Sys().EnableAuth(path, name, desc)
-
-	if err != nil {
+	if err := client.Sys().EnableAuthWithOptions(path, options); err != nil {
 		return fmt.Errorf("error writing to Vault: %s", err)
 	}
 
@@ -95,9 +128,7 @@ func authBackendDelete(d *schema.ResourceData, meta interface{}) error {
 
 	log.Printf("[DEBUG] Deleting auth %s from Vault", path)
 
-	err := client.Sys().DisableAuth(path)
-
-	if err != nil {
+	if err := client.Sys().DisableAuth(path); err != nil {
 		return fmt.Errorf("error disabling auth from Vault: %s", err)
 	}
 
@@ -107,7 +138,7 @@ func authBackendDelete(d *schema.ResourceData, meta interface{}) error {
 func authBackendRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*api.Client)
 
-	targetPath := d.Id() + "/"
+	targetPath := d.Id()
 
 	auths, err := client.Sys().ListAuth()
 
@@ -116,10 +147,15 @@ func authBackendRead(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	for path, auth := range auths {
+		path = strings.TrimSuffix(path, "/")
 		if path == targetPath {
 			d.Set("type", auth.Type)
 			d.Set("path", path)
 			d.Set("description", auth.Description)
+			d.Set("default_lease_ttl_seconds", auth.Config.DefaultLeaseTTL)
+			d.Set("max_lease_ttl_seconds", auth.Config.MaxLeaseTTL)
+			d.Set("listing_visibility", auth.Config.ListingVisibility)
+			d.Set("local", auth.Local)
 			d.Set("accessor", auth.Accessor)
 			return nil
 		}

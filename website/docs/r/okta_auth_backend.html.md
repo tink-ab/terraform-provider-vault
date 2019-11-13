@@ -15,16 +15,18 @@ Provides a resource for managing an
 
 ```hcl
 resource "vault_okta_auth_backend" "example" {
-    description = "Demonstration of the Terraform Okta auth backend"
+    description  = "Demonstration of the Terraform Okta auth backend"
     organization = "example"
-    token = "something that should be kept secret"
+    token        = "something that should be kept secret"
+    
     group {
         group_name = "foo"
-        policies = ["one", "two"]
+        policies   = ["one", "two"]
     }
+    
     user {
         username = "bar"
-        groups = ["foo"]
+        groups   = ["foo"]
     }
 }
 ```
@@ -74,4 +76,6 @@ If this is not supplied only locally configured groups will be enabled.
 
 ## Attributes Reference
 
-No additional attributes are exposed by this resource.
+In addition to all arguments above, the following attributes are exported:
+
+* `accessor` - The mount accessor related to the auth mount. It is useful for integration with [Identity Secrets Engine](https://www.vaultproject.io/docs/secrets/identity/index.html).

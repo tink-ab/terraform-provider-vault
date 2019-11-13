@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -28,6 +29,11 @@ func TestAccAWSAuthBackendRole_importInferred(t *testing.T) {
 				ResourceName:      "vault_aws_auth_backend_role.role",
 				ImportState:       true,
 				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"bound_ami_id", "bound_account_id", "bound_region",
+					"bound_vpc_id", "bound_subnet_id", "bound_iam_role_arn",
+					"bound_iam_instance_profile_arn", "bound_ec2_instance_id",
+					"bound_iam_principal_arn"},
 			},
 		},
 	})
@@ -126,6 +132,23 @@ func TestAccAWSAuthBackendRole_iam(t *testing.T) {
 	})
 }
 
+func TestAccAWSAuthBackendRole_iam_resolve_aws_unique_ids(t *testing.T) {
+	backend := acctest.RandomWithPrefix("aws")
+	role := acctest.RandomWithPrefix("test-role")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testProviders,
+		CheckDestroy: testAccCheckAWSAuthBackendRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAWSAuthBackendRoleConfig_iam_resolve_aws_unique_ids(backend, role),
+				Check:  testAccAWSAuthBackendRoleCheck_attrs(backend, role),
+			},
+		},
+	})
+}
+
 func TestAccAWSAuthBackendRole_iamUpdate(t *testing.T) {
 	backend := acctest.RandomWithPrefix("aws")
 	role := acctest.RandomWithPrefix("test-role")
@@ -144,19 +167,63 @@ func TestAccAWSAuthBackendRole_iamUpdate(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccAWSAuthBackendRoleCheck_attrs(backend, role),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"bound_iam_principal_arn.#", "1"),
+						"bound_iam_principal_arns.#", "1"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"bound_iam_principal_arn.0", "arn:aws:iam::123456789012:role/MyRole/*"),
+						"bound_iam_principal_arns.3878455414", "arn:aws:iam::123456789012:role/MyRole/*"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"ttl", "30"),
+						"token_ttl", "30"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"max_ttl", "60"),
+						"token_max_ttl", "60"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"policies.#", "2"),
+						"token_policies.#", "2"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"policies.0", "default"),
+						"token_policies.1971754988", "default"),
 					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
-						"policies.1", "dev"),
+						"token_policies.326271447", "dev"),
+				),
+			},
+			{
+				Config: testAccAWSAuthBackendRoleConfig_DeletePolicies(backend, role),
+				Check: resource.ComposeTestCheckFunc(
+					testAccAWSAuthBackendRoleCheck_attrs(backend, role),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"token_policies.#", "0"),
+				),
+			},
+			{
+				Config: testAccAWSAuthBackendRoleConfig_Unset(backend, role),
+				Check: resource.ComposeTestCheckFunc(
+					testAccAWSAuthBackendRoleCheck_attrs(backend, role),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"token_policies.#", "0"),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"token_ttl", "0"),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"token_max_ttl", "0"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccAWSAuthBackendRole_deprecatedEc2(t *testing.T) {
+	backend := acctest.RandomWithPrefix("aws")
+	role := acctest.RandomWithPrefix("test-role")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testProviders,
+		CheckDestroy: testAccCheckAWSAuthBackendRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAWSAuthBackendRoleConfig_deprecatedEc2(backend, role),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"ttl", "60"),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"max_ttl", "120"),
+					resource.TestCheckResourceAttr("vault_aws_auth_backend_role.role",
+						"policies.#", "3"),
 				),
 			},
 		},
@@ -205,60 +272,83 @@ func testAccAWSAuthBackendRoleCheck_attrs(backend, role string) resource.TestChe
 			return fmt.Errorf("%q doesn't exist", endpoint)
 		}
 
-		attrs := map[string]string{
-			"auth_type":                      "auth_type",
-			"bound_ami_id":                   "bound_ami_id",
-			"bound_account_id":               "bound_account_id",
-			"bound_region":                   "bound_region",
-			"bound_vpc_id":                   "bound_vpc_id",
-			"bound_subnet_id":                "bound_subnet_id",
-			"bound_iam_role_arn":             "bound_iam_role_arn",
-			"bound_iam_instance_profile_arn": "bound_iam_instance_profile_arn",
-			"bound_ec2_instance_id":          "bound_ec2_instance_id",
-			"role_tag":                       "role_tag",
-			"bound_iam_principal_arn":        "bound_iam_principal_arn",
-			"inferred_entity_type":           "inferred_entity_type",
-			"inferred_aws_region":            "inferred_aws_region",
-			"resolve_aws_unique_ids":         "resolve_aws_unique_ids",
-			"ttl":                            "ttl",
-			"max_ttl":                        "max_ttl",
-			"period":                         "period",
-			"policies":                       "policies",
-			"allow_instance_migration":       "allow_instance_migration",
-			"disallow_reauthentication":      "disallow_reauthentication",
+		attrs := []*fieldNames{
+			{NameInVault: "auth_type", NameInProvider: "auth_type"},
+			{NameInVault: "bound_ami_id", NameInProvider: "bound_ami_ids", PreviousNameInProvider: "bound_ami_id"},
+			{NameInVault: "bound_account_id", NameInProvider: "bound_account_ids", PreviousNameInProvider: "bound_account_id"},
+			{NameInVault: "bound_region", NameInProvider: "bound_regions", PreviousNameInProvider: "bound_region"},
+			{NameInVault: "bound_vpc_id", NameInProvider: "bound_vpc_ids", PreviousNameInProvider: "bound_vpc_id"},
+			{NameInVault: "bound_subnet_id", NameInProvider: "bound_subnet_ids", PreviousNameInProvider: "bound_subnet_id"},
+			{NameInVault: "bound_iam_role_arn", NameInProvider: "bound_iam_role_arns", PreviousNameInProvider: "bound_iam_role_arn"},
+			{NameInVault: "bound_iam_instance_profile_arn", NameInProvider: "bound_iam_instance_profile_arns", PreviousNameInProvider: "bound_iam_instance_profile_arn"},
+			{NameInVault: "bound_ec2_instance_id", NameInProvider: "bound_ec2_instance_ids", PreviousNameInProvider: "bound_ec2_instance_id"},
+			{NameInVault: "role_tag", NameInProvider: "role_tag"},
+			{NameInVault: "bound_iam_principal_arn", NameInProvider: "bound_iam_principal_arns", PreviousNameInProvider: "bound_iam_principal_arn"},
+			{NameInVault: "inferred_entity_type", NameInProvider: "inferred_entity_type"},
+			{NameInVault: "inferred_aws_region", NameInProvider: "inferred_aws_region"},
+			{NameInVault: "resolve_aws_unique_ids", NameInProvider: "resolve_aws_unique_ids"},
+			{NameInVault: "token_ttl", NameInProvider: "token_ttl"},
+			{NameInVault: "token_max_ttl", NameInProvider: "token_max_ttl"},
+			{NameInVault: "token_period", NameInProvider: "token_period"},
+			{NameInVault: "token_policies", NameInProvider: "token_policies"},
+			{NameInVault: "allow_instance_migration", NameInProvider: "allow_instance_migration"},
+			{NameInVault: "disallow_reauthentication", NameInProvider: "disallow_reauthentication"},
 		}
-		for stateAttr, apiAttr := range attrs {
-			if resp.Data[apiAttr] == nil && instanceState.Attributes[stateAttr] == "" {
+		for _, attr := range attrs {
+
+			providerValIsArray := true
+			stateAttr := ""
+			if _, ok := instanceState.Attributes[attr.NameInProvider]; ok {
+				providerValIsArray = false
+				stateAttr = attr.NameInProvider
+			} else if _, ok := instanceState.Attributes[attr.PreviousNameInProvider]; ok {
+				providerValIsArray = false
+				stateAttr = attr.PreviousNameInProvider
+			} else if _, ok := instanceState.Attributes[attr.NameInProvider+".#"]; ok {
+				stateAttr = attr.NameInProvider
+			} else if _, ok := instanceState.Attributes[attr.PreviousNameInProvider+".#"]; ok {
+				stateAttr = attr.PreviousNameInProvider
+			}
+			stateAttrVal := instanceState.Attributes[stateAttr]
+
+			if resp.Data[attr.NameInVault] == nil && stateAttrVal == "" {
 				continue
 			}
 			var match bool
-			switch resp.Data[apiAttr].(type) {
+			switch vaultRespVal := resp.Data[attr.NameInVault].(type) {
 			case json.Number:
-				apiData, err := resp.Data[apiAttr].(json.Number).Int64()
+				apiData, err := vaultRespVal.Int64()
 				if err != nil {
-					return fmt.Errorf("expected API field %s to be an int, was %q", apiAttr, resp.Data[apiAttr])
+					return fmt.Errorf("expected API field %s to be an int, was %q", attr.NameInVault, resp.Data[attr.NameInVault])
 				}
-				stateData, err := strconv.ParseInt(instanceState.Attributes[stateAttr], 10, 64)
+				stateData, err := strconv.ParseInt(stateAttrVal, 10, 64)
 				if err != nil {
-					return fmt.Errorf("expected state field %s to be an int, was %q", stateAttr, instanceState.Attributes[stateAttr])
+					return fmt.Errorf("expected state field %s to be an int, was %q", stateAttr, stateAttrVal)
 				}
 				match = apiData == stateData
 			case bool:
-				if _, ok := resp.Data[apiAttr]; !ok && instanceState.Attributes[stateAttr] == "" {
+				if _, ok := resp.Data[attr.NameInVault]; !ok && stateAttrVal == "" {
 					match = true
 				} else {
-					stateData, err := strconv.ParseBool(instanceState.Attributes[stateAttr])
+					stateData, err := strconv.ParseBool(stateAttrVal)
 					if err != nil {
-						return fmt.Errorf("expected state field %s to be a bool, was %q", stateAttr, instanceState.Attributes[stateAttr])
+						return fmt.Errorf("expected state field %s to be a bool, was %q", stateAttr, stateAttrVal)
 					}
-					match = resp.Data[apiAttr] == stateData
+					match = vaultRespVal == stateData
 				}
 			case []interface{}:
-				apiData := resp.Data[apiAttr].([]interface{})
 				length := instanceState.Attributes[stateAttr+".#"]
-				if length == "" {
-					if len(resp.Data[apiAttr].([]interface{})) != 0 {
-						return fmt.Errorf("expected state field %s to have %d entries, had 0", stateAttr, len(apiData))
+				if !providerValIsArray {
+					if len(vaultRespVal) != 1 {
+						return fmt.Errorf("expected one response value but received %s", vaultRespVal)
+					}
+					if vaultRespVal[0] != stateAttrVal {
+						return fmt.Errorf("expected %s but received %s", stateAttrVal, vaultRespVal[0])
+					}
+					match = true
+				} else if length == "" {
+					if len(vaultRespVal) != 0 {
+						return fmt.Errorf("expected state field %s to have %d entries, had 0", stateAttr, len(vaultRespVal))
 					}
 					match = true
 				} else {
@@ -266,22 +356,30 @@ func testAccAWSAuthBackendRoleCheck_attrs(backend, role string) resource.TestChe
 					if err != nil {
 						return fmt.Errorf("expected %s.# to be a number, got %q", stateAttr, instanceState.Attributes[stateAttr+".#"])
 					}
-					if count != len(apiData) {
-						return fmt.Errorf("expected %s to have %d entries in state, has %d", stateAttr, len(apiData), count)
+					if count != len(vaultRespVal) {
+						return fmt.Errorf("expected %s to have %d entries in state, has %d", stateAttr, len(vaultRespVal), count)
 					}
 					for i := 0; i < count; i++ {
-						stateData := instanceState.Attributes[stateAttr+"."+strconv.Itoa(i)]
-						if stateData != apiData[i] {
-							return fmt.Errorf("expected item %d of %s (%s in state) of %q to be %q, got %q", i, apiAttr, stateAttr, endpoint, stateData, apiData[i])
+						found := false
+						for stateKey, stateValue := range instanceState.Attributes {
+							if strings.HasPrefix(stateKey, stateAttr) {
+								if vaultRespVal[i] == stateValue {
+									found = true
+									break
+								}
+							}
+						}
+						if !found {
+							return fmt.Errorf("Expected item %d of %s (%s in state) of %q to be in state but wasn't", i, attr.NameInVault, stateAttr, vaultRespVal[i])
 						}
 					}
 					match = true
 				}
 			default:
-				match = resp.Data[apiAttr] == instanceState.Attributes[stateAttr]
+				match = resp.Data[attr.NameInVault] == stateAttrVal
 			}
 			if !match {
-				return fmt.Errorf("expected %s (%s in state) of %q to be %q, got %q", apiAttr, stateAttr, endpoint, instanceState.Attributes[stateAttr], resp.Data[apiAttr])
+				return fmt.Errorf("expected %s (%s in state) of %q to be %q, got %q", attr.NameInVault, stateAttr, endpoint, stateAttrVal, resp.Data[attr.NameInVault])
 			}
 		}
 		return nil
@@ -294,23 +392,22 @@ resource "vault_auth_backend" "aws" {
   type = "aws"
   path = "%s"
 }
-
 resource "vault_aws_auth_backend_role" "role" {
   backend = "${vault_auth_backend.aws.path}"
   role = "%s"
   auth_type = "iam"
-  bound_ami_id = ["ami-8c1be5f6"]
-  bound_account_id = ["123456789012"]
-  bound_ec2_instance_id = ["i-06bb291939760ba66"]
-  bound_vpc_id = ["vpc-b61106d4"]
-  bound_subnet_id = ["vpc-a33128f1"]
-  bound_iam_role_arn = ["arn:aws:iam::123456789012:role/S3Access"]
-  bound_iam_instance_profile_arn = ["arn:aws:iam::123456789012:instance-profile/Webserver"]
+  bound_ami_ids = ["ami-8c1be5f6"]
+  bound_account_ids = ["123456789012"]
+  bound_vpc_ids = ["vpc-b61106d4"]
+  bound_subnet_ids = ["vpc-a33128f1"]
+  bound_iam_role_arns = ["arn:aws:iam::123456789012:role/S3Access"]
+  bound_iam_instance_profile_arns = ["arn:aws:iam::123456789012:instance-profile/Webserver"]
+  bound_ec2_instance_ids = ["i-06bb291939760ba66"]
   inferred_entity_type = "ec2_instance"
   inferred_aws_region = "us-east-1"
-  ttl = 60
-  max_ttl = 120
-  policies = ["default", "dev", "prod"]
+  token_ttl = 60
+  token_max_ttl = 120
+  token_policies = ["default", "dev", "prod"]
 }`, backend, role)
 }
 
@@ -320,16 +417,33 @@ resource "vault_auth_backend" "aws" {
   type = "aws"
   path = "%s"
 }
-
 resource "vault_aws_auth_backend_role" "role" {
   backend = "${vault_auth_backend.aws.path}"
   role = "%s"
   auth_type = "iam"
-  bound_iam_principal_arn = ["arn:aws:iam::123456789012:role/*"]
+  bound_iam_principal_arns = ["arn:aws:iam::123456789012:role/*"]
   resolve_aws_unique_ids = true
-  ttl = 60
-  max_ttl = 120
-  policies = ["default", "dev", "prod"]
+  token_ttl = 60
+  token_max_ttl = 120
+  token_policies = ["default", "dev", "prod"]
+}`, backend, role)
+}
+
+func testAccAWSAuthBackendRoleConfig_iam_resolve_aws_unique_ids(backend, role string) string {
+	return fmt.Sprintf(`
+resource "vault_auth_backend" "aws" {
+  type = "aws"
+  path = "%s"
+}
+resource "vault_aws_auth_backend_role" "role" {
+  backend = "${vault_auth_backend.aws.path}"
+  role = "%s"
+  auth_type = "iam"
+  bound_iam_principal_arns = ["arn:aws:iam::123456789012:role/*"]
+  resolve_aws_unique_ids = false
+  token_ttl = 60
+  token_max_ttl = 120
+  token_policies = ["default", "dev", "prod"]
 }`, backend, role)
 }
 
@@ -339,16 +453,47 @@ resource "vault_auth_backend" "aws" {
   type = "aws"
   path = "%s"
 }
-
 resource "vault_aws_auth_backend_role" "role" {
   backend = "${vault_auth_backend.aws.path}"
   role = "%s"
   auth_type = "iam"
-  bound_iam_principal_arn = ["arn:aws:iam::123456789012:role/MyRole/*"]
+  bound_iam_principal_arns = ["arn:aws:iam::123456789012:role/MyRole/*"]
   resolve_aws_unique_ids = true
-  ttl = 30
-  max_ttl = 60
-  policies = ["default", "dev"]
+  token_ttl = 30
+  token_max_ttl = 60
+  token_policies = ["default", "dev"]
+}`, backend, role)
+}
+
+func testAccAWSAuthBackendRoleConfig_DeletePolicies(backend, role string) string {
+	return fmt.Sprintf(`
+resource "vault_auth_backend" "aws" {
+  type = "aws"
+  path = "%s"
+}
+resource "vault_aws_auth_backend_role" "role" {
+  backend = "${vault_auth_backend.aws.path}"
+  role = "%s"
+  auth_type = "iam"
+  bound_iam_principal_arns = ["arn:aws:iam::123456789012:role/MyRole/*"]
+  resolve_aws_unique_ids = true
+  token_ttl = 30
+  token_max_ttl = 60
+}`, backend, role)
+}
+
+func testAccAWSAuthBackendRoleConfig_Unset(backend, role string) string {
+	return fmt.Sprintf(`
+resource "vault_auth_backend" "aws" {
+  type = "aws"
+  path = "%s"
+}
+resource "vault_aws_auth_backend_role" "role" {
+  backend = "${vault_auth_backend.aws.path}"
+  role = "%s"
+  auth_type = "iam"
+  bound_iam_principal_arns = ["arn:aws:iam::123456789012:role/MyRole/*"]
+  resolve_aws_unique_ids = true
 }`, backend, role)
 }
 
@@ -358,23 +503,54 @@ resource "vault_auth_backend" "aws" {
   type = "aws"
   path = "%s"
 }
-
 resource "vault_aws_auth_backend_role" "role" {
   backend = "${vault_auth_backend.aws.path}"
   role = "%s"
   auth_type = "ec2"
-  bound_ami_id = ["ami-8c1be5f6"]
-  bound_account_id = ["123456789012"]
-  bound_ec2_instance_id = ["i-06bb291939760ba66"]
-  bound_region = ["us-east-1"]
-  bound_vpc_id = ["vpc-b61106d4"]
-  bound_subnet_id = ["vpc-a33128f1"]
-  bound_iam_role_arn = ["arn:aws:iam::123456789012:role/S3Access"]
-  bound_iam_instance_profile_arn = ["arn:aws:iam::123456789012:instance-profile/Webserver"]
+  bound_ami_ids = ["ami-8c1be5f6"]
+  bound_account_ids = ["123456789012"]
+  bound_regions = ["us-east-1"]
+  bound_vpc_ids = ["vpc-b61106d4"]
+  bound_subnet_ids = ["vpc-a33128f1"]
+  bound_iam_role_arns = ["arn:aws:iam::123456789012:role/S3Access"]
+  bound_iam_instance_profile_arns = ["arn:aws:iam::123456789012:instance-profile/Webserver"]
+  bound_ec2_instance_ids = ["i-06bb291939760ba66"]
+  role_tag = "VaultRoleTag"
+  disallow_reauthentication = true
+  token_ttl = 60
+  token_max_ttl = 120
+  token_policies = ["default", "dev", "prod"]
+}`, backend, role)
+}
+
+func testAccAWSAuthBackendRoleConfig_deprecatedEc2(backend, role string) string {
+	return fmt.Sprintf(`
+resource "vault_auth_backend" "aws" {
+  type = "aws"
+  path = "%s"
+}
+resource "vault_aws_auth_backend_role" "role" {
+  backend = "${vault_auth_backend.aws.path}"
+  role = "%s"
+  auth_type = "ec2"
+  bound_ami_ids = ["ami-8c1be5f6"]
+  bound_account_ids = ["123456789012"]
+  bound_regions = ["us-east-1"]
+  bound_vpc_ids = ["vpc-b61106d4"]
+  bound_subnet_ids = ["vpc-a33128f1"]
+  bound_iam_role_arns = ["arn:aws:iam::123456789012:role/S3Access"]
+  bound_iam_instance_profile_arns = ["arn:aws:iam::123456789012:instance-profile/Webserver"]
+  bound_ec2_instance_ids = ["i-06bb291939760ba66"]
   role_tag = "VaultRoleTag"
   disallow_reauthentication = true
   ttl = 60
   max_ttl = 120
   policies = ["default", "dev", "prod"]
 }`, backend, role)
+}
+
+type fieldNames struct {
+	NameInVault            string
+	NameInProvider         string
+	PreviousNameInProvider string
 }

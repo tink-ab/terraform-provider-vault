@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/vault/api"
+	"github.com/terraform-providers/terraform-provider-vault/util"
 )
 
 var (
@@ -49,6 +50,20 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Elem: &schema.Schema{
 					Type: schema.TypeString,
 				},
+			},
+			"root_rotation_statements": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "A list of database statements to be executed to rotate the root user's credentials.",
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
+			"data": {
+				Type:        schema.TypeMap,
+				Optional:    true,
+				Description: "A map of sensitive data to pass to the endpoint. Useful for templated connection strings.",
+				Sensitive:   true,
 			},
 
 			"cassandra": {
@@ -121,7 +136,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 					},
 				},
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("cassandra", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("cassandra", dbBackendTypes),
 			},
 
 			"mongodb": {
@@ -138,7 +153,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 					},
 				}),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mongodb", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mongodb", dbBackendTypes),
 			},
 
 			"hana": {
@@ -147,7 +162,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the hana-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("hana", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("hana", dbBackendTypes),
 			},
 
 			"mssql": {
@@ -156,7 +171,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the mssql-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mssql", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mssql", dbBackendTypes),
 			},
 
 			"mysql": {
@@ -165,7 +180,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the mysql-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mysql", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mysql", dbBackendTypes),
 			},
 			"mysql_rds": {
 				Type:          schema.TypeList,
@@ -173,7 +188,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the mysql-rds-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mysql_rds", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mysql_rds", dbBackendTypes),
 			},
 			"mysql_aurora": {
 				Type:          schema.TypeList,
@@ -181,7 +196,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the mysql-aurora-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mysql_aurora", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mysql_aurora", dbBackendTypes),
 			},
 			"mysql_legacy": {
 				Type:          schema.TypeList,
@@ -189,7 +204,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the mysql-legacy-database-plugin plugin.",
 				Elem:          connectionStringResource(),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("mysql_legacy", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("mysql_legacy", dbBackendTypes),
 			},
 
 			"postgresql": {
@@ -198,7 +213,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the postgresql-database-plugin plugin.",
 				Elem:          addCredentialsSchema(connectionStringResource()),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("postgresql", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("postgresql", dbBackendTypes),
 			},
 
 			"oracle": {
@@ -207,7 +222,7 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description:   "Connection parameters for the oracle-database-plugin plugin.",
 				Elem:          connectionStringResource(),
 				MaxItems:      1,
-				ConflictsWith: calculateConflictsWith("oracle", dbBackendTypes),
+				ConflictsWith: util.CalculateConflictsWith("oracle", dbBackendTypes),
 			},
 
 			"backend": {
@@ -381,8 +396,12 @@ func getConnectionDetailsFromResponse(d *schema.ResourceData, prefix string, res
 		return nil
 	}
 	result := map[string]interface{}{}
-	if v, ok := data["connection_url"]; ok {
+	if v, ok := d.GetOk(prefix + "connection_url"); ok {
 		result["connection_url"] = v.(string)
+	} else {
+		if v, ok := data["connection_url"]; ok {
+			result["connection_url"] = v.(string)
+		}
 	}
 	if v, ok := data["max_open_connections"]; ok {
 		n, err := v.(json.Number).Int64()
@@ -401,11 +420,11 @@ func getConnectionDetailsFromResponse(d *schema.ResourceData, prefix string, res
 		}
 	}
 	if v, ok := data["max_connection_lifetime"]; ok {
-		i, err := time.ParseDuration(v.(string))
+		n, err := time.ParseDuration(v.(string))
 		if err != nil {
 			log.Printf("[WARN] Non-duration %s returned from Vault server: %s", v, err)
 		} else {
-			result["max_connection_lifetime"] = i
+			result["max_connection_lifetime"] = n.Seconds()
 		}
 	}
 	if v, ok := data["username"]; ok {
@@ -470,6 +489,16 @@ func databaseSecretBackendConnectionCreate(d *schema.ResourceData, meta interfac
 		data["allowed_roles"] = strings.Join(roles, ",")
 	}
 
+	if v, ok := d.GetOkExists("root_rotation_statements"); ok {
+		data["root_rotation_statements"] = v
+	}
+
+	if m, ok := d.GetOkExists("data"); ok {
+		for k, v := range m.(map[string]interface{}) {
+			data[k] = v.(string)
+		}
+	}
+
 	log.Printf("[DEBUG] Writing connection config to %q", path)
 	_, err = client.Logical().Write(path, data)
 	if err != nil {
@@ -529,10 +558,11 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 			if v, ok := data["username"]; ok {
 				result["username"] = v.(string)
 			}
-			// Vault does not return the password. Setting the state to the password in the resource
-			// to avoid a diff between state and reality
-			if v, ok := d.GetOkExists("cassandra.0.password"); ok {
-				result["password"] = v
+			if v, ok := data["password"]; ok {
+				result["password"] = v.(string)
+			} else if v, ok := d.GetOk("cassandra.0.password"); ok {
+				// keep the password we have in state/config if the API doesn't return one
+				result["password"] = v.(string)
 			}
 			if v, ok := data["tls"]; ok {
 				result["tls"] = v.(bool)
@@ -542,8 +572,12 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 			}
 			if v, ok := data["pem_bundle"]; ok {
 				result["pem_bundle"] = v.(string)
+			} else if v, ok := d.GetOk("cassandra.0.pem_bundle"); ok {
+				result["pem_bundle"] = v.(string)
 			}
 			if v, ok := data["pem_json"]; ok {
+				result["pem_json"] = v.(string)
+			} else if v, ok := d.GetOk("cassandra.0.pem_json"); ok {
 				result["pem_json"] = v.(string)
 			}
 			if v, ok := data["protocol_version"]; ok {
@@ -594,7 +628,7 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 	case "mysql-legacy-database-plugin":
 		d.Set("mysql_legacy", getConnectionDetailsFromResponse(d, "mysql_legacy.0.", resp))
 	case "oracle-database-plugin":
-		d.Set("oracle", getConnectionDetailsFromResponse(d, "mysql_oracle.0.", resp))
+		d.Set("oracle", getConnectionDetailsFromResponse(d, "oracle.0.", resp))
 	case "postgresql-database-plugin":
 		d.Set("postgresql", getConnectionDetailsFromResponse(d, "postgresql.0.", resp))
 	}
@@ -611,6 +645,7 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 	d.Set("allowed_roles", roles)
 	d.Set("backend", backend)
 	d.Set("name", name)
+	d.Set("root_rotation_statements", resp.Data["root_credentials_rotate_statements"])
 	if v, ok := resp.Data["verify_connection"]; ok {
 		d.Set("verify_connection", v.(bool))
 	}
@@ -641,6 +676,16 @@ func databaseSecretBackendConnectionUpdate(d *schema.ResourceData, meta interfac
 			roles = append(roles, role.(string))
 		}
 		data["allowed_roles"] = strings.Join(roles, ",")
+	}
+
+	if v, ok := d.GetOkExists("root_rotation_statements"); ok {
+		data["root_rotation_statements"] = v
+	}
+
+	if m, ok := d.GetOkExists("data"); ok {
+		for k, v := range m.(map[string]interface{}) {
+			data[k] = v.(string)
+		}
 	}
 
 	log.Printf("[DEBUG] Writing connection config to %q", path)

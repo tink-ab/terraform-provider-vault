@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
 )
 
 func TestAccAppRoleAuthBackendLogin_basic(t *testing.T) {
@@ -59,7 +59,7 @@ resource "vault_auth_backend" "approle" {
 resource "vault_approle_auth_backend_role" "role" {
   backend = "${vault_auth_backend.approle.path}"
   role_name = "%s"
-  policies = ["default", "dev", "prod"]
+  token_policies = ["default", "dev", "prod"]
 }
 
 resource "vault_approle_auth_backend_role_secret_id" "secret" {

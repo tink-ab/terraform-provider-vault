@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
+	"github.com/terraform-providers/terraform-provider-vault/util"
 )
 
 func TestOktaAuthBackend(t *testing.T) {
@@ -116,6 +117,10 @@ func testOktaAuthBackend_InitialCheck(s *terraform.State) error {
 		return fmt.Errorf("incorrect ttl: %s", config.Data["ttl"])
 	}
 
+	if instanceState.Attributes["accessor"] != authMount.Accessor {
+		return fmt.Errorf("incorrect accessor: %s", instanceState.Attributes["accessor"])
+	}
+
 	return nil
 }
 
@@ -139,7 +144,7 @@ func testOktaAuthBackend_GroupsCheck(path, groupName string, expectedPolicies []
 
 		var missing []interface{}
 
-		actual := toStringArray(dummyGroup.Data["policies"].([]interface{}))
+		actual := util.ToStringArray(dummyGroup.Data["policies"].([]interface{}))
 	EXPECTED:
 		for _, i := range expectedPolicies {
 			for _, j := range actual {
@@ -180,7 +185,7 @@ func testOktaAuthBackend_UsersCheck(path, userName string, expectedGroups, expec
 
 		var missing []interface{}
 
-		actual := toStringArray(user.Data["policies"].([]interface{}))
+		actual := util.ToStringArray(user.Data["policies"].([]interface{}))
 		if len(expectedPolicies) != len(actual) {
 			return fmt.Errorf("expected %d policies, got %d", len(expectedPolicies), len(actual))
 		}
@@ -199,7 +204,7 @@ func testOktaAuthBackend_UsersCheck(path, userName string, expectedGroups, expec
 			return fmt.Errorf("user policies incorrect; expected %[1]v (len: %[3]d), actual %[2]v (len: %[4]d) (types: %[1]T, %[2]T)", expectedPolicies, actual, len(expectedPolicies), len(actual))
 		}
 
-		actual = toStringArray(user.Data["groups"].([]interface{}))
+		actual = util.ToStringArray(user.Data["groups"].([]interface{}))
 
 		if len(expectedGroups) != len(actual) {
 			return fmt.Errorf("expected %d groups, got %d", len(expectedGroups), len(actual))

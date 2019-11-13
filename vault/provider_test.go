@@ -2,16 +2,18 @@ package vault
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/vault/command/config"
-	"github.com/mitchellh/go-homedir"
 	"io/ioutil"
 	"os"
 	"path"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/schema"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/pathorcontents"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
+	"github.com/hashicorp/vault/command/config"
+	"github.com/mitchellh/go-homedir"
 )
 
 // How to run the acceptance tests for this provider:
@@ -77,11 +79,277 @@ func getTestAWSCreds(t *testing.T) (string, string) {
 	return accessKey, secretKey
 }
 
+func getTestGCPCreds(t *testing.T) (string, string) {
+	credentials := os.Getenv("GOOGLE_CREDENTIALS")
+	project := os.Getenv("GOOGLE_PROJECT")
+
+	if credentials == "" {
+		t.Skip("GOOGLE_CREDENTIALS not set")
+	}
+
+	if project == "" {
+		t.Skip("GOOGLE_PROJECT not set")
+	}
+
+	contents, _, err := pathorcontents.Read(credentials)
+	if err != nil {
+		t.Fatal("Error reading GOOGLE_CREDENTIALS: " + err.Error())
+	}
+
+	return string(contents), project
+}
+
+func getTestRMQCreds(t *testing.T) (string, string, string) {
+	connectionUri := os.Getenv("RMQ_CONNECTION_URI")
+	username := os.Getenv("RMQ_USERNAME")
+	password := os.Getenv("RMQ_PASSWORD")
+	if connectionUri == "" {
+		t.Skip("RMQ_CONNECTION_URI not set")
+	}
+	if username == "" {
+		t.Skip("RMQ_USERNAME not set")
+	}
+	if password == "" {
+		t.Skip("RMQ_PASSWORD not set")
+	}
+	return connectionUri, username, password
+}
+
 // A basic token helper script.
 const tokenHelperScript = `
 #!/usr/bin/env bash
 echo "helper-token"
 `
+
+func TestAccAuthLoginProviderConfigure(t *testing.T) {
+	rootProvider := Provider().(*schema.Provider)
+	rootProviderResource := &schema.Resource{
+		Schema: rootProvider.Schema,
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Providers: map[string]terraform.ResourceProvider{
+			"vault": rootProvider,
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testResourceApproleConfig_basic(),
+				Check:  testResourceApproleLoginCheckAttrs(t),
+			},
+		},
+	})
+
+	rootProviderData := rootProviderResource.TestResourceData()
+	if _, err := providerConfigure(rootProviderData); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAccNamespaceProviderConfigure(t *testing.T) {
+	isEnterprise := os.Getenv("TF_ACC_ENTERPRISE")
+	if isEnterprise == "" {
+		t.Skip("TF_ACC_ENTERPRISE is not set, test is applicable only for Enterprise version of Vault")
+	}
+
+	rootProvider := Provider().(*schema.Provider)
+	rootProviderResource := &schema.Resource{
+		Schema: rootProvider.Schema,
+	}
+	rootProviderData := rootProviderResource.TestResourceData()
+	if _, err := providerConfigure(rootProviderData); err != nil {
+		t.Fatal(err)
+	}
+
+	namespacePath := acctest.RandomWithPrefix("test-namespace")
+
+	//Create a test namespace and make sure it stays there
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Providers: map[string]terraform.ResourceProvider{
+			"vault": rootProvider,
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testNamespaceConfig(namespacePath),
+				Check:  testNamespaceCheckAttrs(),
+			},
+		},
+	})
+
+	nsProvider := Provider().(*schema.Provider)
+	nsProviderResource := &schema.Resource{
+		Schema: nsProvider.Schema,
+	}
+	nsProviderData := nsProviderResource.TestResourceData()
+	nsProviderData.Set("namespace", namespacePath)
+	nsProviderData.Set("token", os.Getenv("VAULT_TOKEN"))
+	if _, err := providerConfigure(nsProviderData); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a policy with sudo permissions and an orphaned periodic token within the test namespace
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Providers: map[string]terraform.ResourceProvider{
+			"vault": nsProvider,
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testResourceAdminPeriodicOrphanTokenConfig_basic(),
+				Check:  testResourceAdminPeriodicOrphanTokenCheckAttrs(namespacePath, t),
+			},
+		},
+	})
+
+}
+
+func testResourceApproleConfig_basic() string {
+	return `
+resource "vault_auth_backend" "approle" {
+	type = "approle"
+	path = "approle"
+}
+
+resource "vault_policy" "admin" {
+    name = "admin"
+	policy = <<EOT
+path "*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+EOT
+}
+
+resource "vault_approle_auth_backend_role" "admin" {
+    backend = vault_auth_backend.approle.path
+	role_name = "admin"
+	policies = [vault_policy.admin.name]
+}
+
+resource "vault_approle_auth_backend_role_secret_id" "admin" {
+	backend = vault_auth_backend.approle.path
+	role_name = vault_approle_auth_backend_role.admin.role_name
+}
+`
+}
+
+func testResourceApproleLoginCheckAttrs(t *testing.T) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		resourceState := s.Modules[0].Resources["vault_approle_auth_backend_role_secret_id.admin"]
+		if resourceState == nil {
+			return fmt.Errorf("approle secret id resource not found in state")
+		}
+
+		roleResourceState := s.Modules[0].Resources["vault_approle_auth_backend_role.admin"]
+		if roleResourceState == nil {
+			return fmt.Errorf("approle role resource not found in state")
+		}
+
+		backendResourceState := s.Modules[0].Resources["vault_auth_backend.approle"]
+		if backendResourceState == nil {
+			return fmt.Errorf("approle mount resource not found in state")
+		}
+
+		instanceState := resourceState.Primary
+		if instanceState == nil {
+			return fmt.Errorf("approle secret id resource has no primary instance")
+		}
+
+		roleId := roleResourceState.Primary.Attributes["role_id"]
+		secretId := instanceState.Attributes["secret_id"]
+
+		authLoginData := []map[string]interface{}{
+			{
+				"path": "auth/approle/login",
+				"parameters": map[string]interface{}{
+					"role_id":   roleId,
+					"secret_id": secretId,
+				},
+			},
+		}
+		approleProvider := Provider().(*schema.Provider)
+		approleProviderResource := &schema.Resource{
+			Schema: approleProvider.Schema,
+		}
+		approleProviderData := approleProviderResource.TestResourceData()
+		approleProviderData.Set("auth_login", authLoginData)
+		_, err := providerConfigure(approleProviderData)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	}
+}
+
+func testResourceAdminPeriodicOrphanTokenConfig_basic() string {
+	return `
+resource "vault_policy" "test" {
+	name = "admin"
+	policy = <<EOT
+path "*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+EOT
+}
+
+resource "vault_token" "test" {
+	policies = [ "${vault_policy.test.name}" ]
+	ttl = "60s"
+}`
+}
+
+func testResourceAdminPeriodicOrphanTokenCheckAttrs(namespacePath string, t *testing.T) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		//Check that it made the policy
+		resourceState := s.Modules[0].Resources["vault_policy.test"]
+		if resourceState == nil {
+			return fmt.Errorf("resource not found in state")
+		}
+
+		instanceState := resourceState.Primary
+		if instanceState == nil {
+			return fmt.Errorf("resource has no primary instance")
+		}
+
+		//Check that it made the token and read it back
+
+		tokenResourceState := s.Modules[0].Resources["vault_token.test"]
+		if tokenResourceState == nil {
+			return fmt.Errorf("token resource not found in state")
+		}
+
+		tokenInstanceState := tokenResourceState.Primary
+		if tokenInstanceState == nil {
+			return fmt.Errorf("token resource has no primary instance")
+		}
+
+		vaultToken := tokenResourceState.Primary.Attributes["client_token"]
+
+		ns2Provider := Provider().(*schema.Provider)
+		ns2ProviderResource := &schema.Resource{
+			Schema: ns2Provider.Schema,
+		}
+		ns2ProviderData := ns2ProviderResource.TestResourceData()
+		ns2ProviderData.Set("namespace", namespacePath)
+		ns2ProviderData.Set("token", vaultToken)
+		if _, err := providerConfigure(ns2ProviderData); err != nil {
+			t.Fatal(err)
+		}
+
+		ns2Path := acctest.RandomWithPrefix("test-namespace2")
+
+		//Finally test that you can do stuff with the new token by creating a sub namespace
+		resource.Test(t, resource.TestCase{
+			PreCheck: func() { testAccPreCheck(t) },
+			Providers: map[string]terraform.ResourceProvider{
+				"vault": ns2Provider,
+			},
+			Steps: []resource.TestStep{
+				{
+					Config: testNamespaceConfig(ns2Path),
+					Check:  testNamespaceCheckAttrs(),
+				},
+			},
+		})
+
+		return nil
+	}
+}
 
 func TestAccProviderToken(t *testing.T) {
 	// This is an acceptance test because it requires filesystem and env var

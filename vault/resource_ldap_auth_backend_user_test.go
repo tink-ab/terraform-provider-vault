@@ -7,11 +7,47 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
+	"github.com/terraform-providers/terraform-provider-vault/util"
 )
+
+func TestLDAPAuthBackendUser_import(t *testing.T) {
+	backend := acctest.RandomWithPrefix("tf-test-ldap-backend")
+	username := acctest.RandomWithPrefix("tf-test-ldap-user")
+
+	policies := []string{
+		acctest.RandomWithPrefix("policy"),
+		acctest.RandomWithPrefix("policy"),
+	}
+
+	groups := []string{
+		acctest.RandomWithPrefix("group"),
+		acctest.RandomWithPrefix("group"),
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testProviders,
+		CheckDestroy: testLDAPAuthBackendUserDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testLDAPAuthBackendUserConfig_basic(backend, username, policies, groups),
+				Check: resource.ComposeTestCheckFunc(
+					testLDAPAuthBackendUserCheck_attrs(backend, username),
+					testLDAPAuthBackendUserCheck_groups(backend, username, groups),
+				),
+			},
+			{
+				ResourceName:      "vault_ldap_auth_backend_user.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
 
 func TestLDAPAuthBackendUser_basic(t *testing.T) {
 	backend := acctest.RandomWithPrefix("tf-test-ldap-backend")
@@ -237,6 +273,6 @@ resource "vault_ldap_auth_backend_user" "test" {
     policies = %s
     groups   = %s
 }
-`, backend, username, arrayToTerraformList(policies), arrayToTerraformList(groups))
+`, backend, username, util.ArrayToTerraformList(policies), util.ArrayToTerraformList(groups))
 
 }

@@ -3,10 +3,12 @@ package vault
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/vault/api"
+	"github.com/terraform-providers/terraform-provider-vault/util"
 )
 
 func awsSecretBackendRoleResource() *schema.Resource {
@@ -33,18 +35,63 @@ func awsSecretBackendRoleResource() *schema.Resource {
 				ForceNew:    true,
 				Description: "The path of the AWS Secret Backend the role belongs to.",
 			},
+			"policy_arns": {
+				Type:          schema.TypeSet,
+				Optional:      true,
+				ConflictsWith: []string{"policy", "policy_arn", "role_arns"},
+				Description:   "ARN for an existing IAM policy the role should use.",
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
 			"policy_arn": {
 				Type:          schema.TypeString,
 				Optional:      true,
-				ConflictsWith: []string{"policy"},
+				ConflictsWith: []string{"policy_document", "policy", "policy_arns", "role_arns"},
 				Description:   "ARN for an existing IAM policy the role should use.",
+				Removed:       `Use "policy_arns".`,
+			},
+			"policy_document": {
+				Type:             schema.TypeString,
+				Optional:         true,
+				ConflictsWith:    []string{"policy_arn", "policy"},
+				Description:      "IAM policy the role should use in JSON format.",
+				DiffSuppressFunc: util.JsonDiffSuppress,
 			},
 			"policy": {
 				Type:             schema.TypeString,
 				Optional:         true,
-				ConflictsWith:    []string{"policy_arn"},
+				ConflictsWith:    []string{"policy_arns", "policy_arn", "policy_document", "role_arns"},
 				Description:      "IAM policy the role should use in JSON format.",
-				DiffSuppressFunc: jsonDiffSuppress,
+				DiffSuppressFunc: util.JsonDiffSuppress,
+				Removed:          `Use "policy_document".`,
+			},
+			"credential_type": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "Role credential type.",
+			},
+			"role_arns": {
+				Type: schema.TypeSet,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+				Optional:      true,
+				ForceNew:      true,
+				ConflictsWith: []string{"policy", "policy_arn", "policy_arns"},
+				Description:   "ARNs of AWS roles allowed to be assumed. Only valid when credential_type is 'assumed_role'",
+			},
+			"default_sts_ttl": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Computed:    true,
+				Description: "The default TTL in seconds for STS credentials. When a TTL is not specified when STS credentials are requested, and a default TTL is specified on the role, then this default TTL will be used. Valid only when credential_type is one of assumed_role or federation_token.",
+			},
+			"max_sts_ttl": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Computed:    true,
+				Description: "The max allowed TTL in seconds for STS credentials (credentials TTL are capped to max_sts_ttl). Valid only when credential_type is one of assumed_role or federation_token.",
 			},
 		},
 	}
@@ -55,20 +102,62 @@ func awsSecretBackendRoleWrite(d *schema.ResourceData, meta interface{}) error {
 
 	backend := d.Get("backend").(string)
 	name := d.Get("name").(string)
-	policyARN := d.Get("policy_arn").(string)
-	policy := d.Get("policy").(string)
 
-	if policy == "" && policyARN == "" {
-		return fmt.Errorf("either policy or policy_arn must be set.")
+	policyARNsIfc, ok := d.GetOk("policy_arns")
+	var policyARNs []interface{}
+	if !ok {
+		policyARN := d.Get("policy_arn")
+		if policyARN != "" {
+			policyARNs = append(policyARNs, policyARN)
+		}
+	} else {
+		policyARNs = policyARNsIfc.(*schema.Set).List()
 	}
 
-	data := map[string]interface{}{}
+	policy, ok := d.GetOk("policy_document")
+	if !ok {
+		policy = d.Get("policy")
+	}
+
+	roleARNs := d.Get("role_arns").(*schema.Set).List()
+
+	if policy == "" && len(policyARNs) == 0 && len(roleARNs) == 0 {
+		return fmt.Errorf("either policy, policy_arns, or role_arns must be set")
+	}
+
+	credentialType := d.Get("credential_type").(string)
+
+	data := map[string]interface{}{
+		"credential_type": credentialType,
+	}
 	if policy != "" {
-		data["policy"] = policy
+		data["policy_document"] = policy
 	}
-	if policyARN != "" {
-		data["arn"] = policyARN
+	if len(policyARNs) != 0 {
+		data["policy_arns"] = policyARNs
 	}
+	if len(roleARNs) != 0 {
+		data["role_arns"] = roleARNs
+	}
+
+	defaultStsTTL, defaultStsTTLOk := d.GetOk("default_sts_ttl")
+	maxStsTTL, maxStsTTLOk := d.GetOk("max_sts_ttl")
+	if credentialType == "assumed_role" || credentialType == "federation_token" {
+		if defaultStsTTLOk {
+			data["default_sts_ttl"] = strconv.Itoa(defaultStsTTL.(int))
+		}
+		if maxStsTTLOk {
+			data["max_sts_ttl"] = strconv.Itoa(maxStsTTL.(int))
+		}
+	} else {
+		if defaultStsTTLOk {
+			return fmt.Errorf("default_sts_ttl is only valid when credential_type is assumed_role or federation_token")
+		}
+		if maxStsTTLOk {
+			return fmt.Errorf("max_sts_ttl is only valid when credential_type is assumed_role or federation_token")
+		}
+	}
+
 	log.Printf("[DEBUG] Creating role %q on AWS backend %q", name, backend)
 	_, err := client.Logical().Write(backend+"/roles/"+name, data)
 	if err != nil {
@@ -100,8 +189,31 @@ func awsSecretBackendRoleRead(d *schema.ResourceData, meta interface{}) error {
 		d.SetId("")
 		return nil
 	}
-	d.Set("policy", secret.Data["policy"])
-	d.Set("policy_arn", secret.Data["arn"])
+
+	if _, ok := d.GetOk("policy_document"); ok {
+		d.Set("policy_document", secret.Data["policy_document"])
+	} else if _, ok := d.GetOk("policy"); ok {
+		d.Set("policy", secret.Data["policy_document"])
+	} else if v, ok := secret.Data["policy_document"]; ok {
+		d.Set("policy_document", v)
+	}
+
+	if _, ok := d.GetOk("policy_arns"); ok {
+		d.Set("policy_arns", secret.Data["policy_arns"])
+	} else if _, ok := d.GetOk("policy_arn"); ok {
+		d.Set("policy_arn", secret.Data["policy_arns"])
+	} else if v, ok := secret.Data["policy_arns"]; ok {
+		d.Set("policy_arns", v)
+	}
+
+	d.Set("credential_type", secret.Data["credential_type"])
+	d.Set("role_arns", secret.Data["role_arns"])
+	if v, ok := secret.Data["default_sts_ttl"]; ok {
+		d.Set("default_sts_ttl", v)
+	}
+	if v, ok := secret.Data["max_sts_ttl"]; ok {
+		d.Set("max_sts_ttl", v)
+	}
 	d.Set("backend", strings.Join(pathPieces[:len(pathPieces)-2], "/"))
 	d.Set("name", pathPieces[len(pathPieces)-1])
 	return nil
