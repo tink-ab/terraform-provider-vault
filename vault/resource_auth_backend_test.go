@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -57,6 +57,10 @@ resource "vault_auth_backend" "test" {
 	type = "github"
 	path = "%s"
 	description = "Test auth backend"
+	default_lease_ttl_seconds = 3600
+	max_lease_ttl_seconds = 86400
+	listing_visibility = "unauth"
+	local = true
 }`, path)
 }
 
@@ -74,12 +78,36 @@ func testResourceAuth_initialCheck(expectedPath string) resource.TestCheckFunc {
 
 		path := instanceState.ID
 
-		if path+"/" != instanceState.Attributes["path"] {
+		if path != instanceState.Attributes["path"] {
 			return fmt.Errorf("id doesn't match path")
 		}
 
 		if path != expectedPath {
 			return fmt.Errorf("unexpected auth path %q, expected %q", path, expectedPath)
+		}
+
+		if instanceState.Attributes["type"] != "github" {
+			return fmt.Errorf("unexpected auth type")
+		}
+
+		if instanceState.Attributes["description"] != "Test auth backend" {
+			return fmt.Errorf("unexpected auth description")
+		}
+
+		if instanceState.Attributes["default_lease_ttl_seconds"] != "3600" {
+			return fmt.Errorf("unexpected auth default_lease_ttl_seconds")
+		}
+
+		if instanceState.Attributes["max_lease_ttl_seconds"] != "86400" {
+			return fmt.Errorf("unexpected auth max_lease_ttl_seconds")
+		}
+
+		if instanceState.Attributes["listing_visibility"] != "unauth" {
+			return fmt.Errorf("unexpected auth listing_visibility")
+		}
+
+		if instanceState.Attributes["local"] != "true" {
+			return fmt.Errorf("unexpected auth local")
 		}
 
 		client := testProvider.Meta().(*api.Client)
@@ -90,9 +118,27 @@ func testResourceAuth_initialCheck(expectedPath string) resource.TestCheckFunc {
 		}
 
 		found := false
-		for serverPath := range auths {
+		for serverPath, serverAuth := range auths {
 			if serverPath == expectedPath+"/" {
 				found = true
+				if serverAuth.Type != "github" {
+					return fmt.Errorf("unexpected auth type")
+				}
+				if serverAuth.Description != "Test auth backend" {
+					return fmt.Errorf("unexpected auth description")
+				}
+				if serverAuth.Config.DefaultLeaseTTL != 3600 {
+					return fmt.Errorf("unexpected auth default_lease_ttl_seconds")
+				}
+				if serverAuth.Config.MaxLeaseTTL != 86400 {
+					return fmt.Errorf("unexpected auth max_lease_ttl_seconds")
+				}
+				if serverAuth.Config.ListingVisibility != "unauth" {
+					return fmt.Errorf("unexpected auth listing_visibility")
+				}
+				if serverAuth.Local != true {
+					return fmt.Errorf("unexpected auth local")
+				}
 				break
 			}
 		}

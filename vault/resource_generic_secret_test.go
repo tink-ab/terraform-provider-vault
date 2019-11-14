@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -55,7 +55,16 @@ func TestResourceGenericSecret_deleted(t *testing.T) {
 
 func testResourceGenericSecret_initialConfig(path string) string {
 	return fmt.Sprintf(`
+resource "vault_mount" "v1" {
+	path = "secretsv1"
+	type = "kv"
+	options = {
+		version = "1"
+	}
+}
+
 resource "vault_generic_secret" "test" {
+    depends_on = ["vault_mount.v1"]
     path = "%s"
     data_json = <<EOT
 {
@@ -92,8 +101,14 @@ func testResourceGenericSecret_initialCheck(expectedPath string) resource.TestCh
 			return fmt.Errorf("error reading back secret: %s", err)
 		}
 
+		// Test the JSON
 		if got, want := secret.Data["zip"], "zap"; got != want {
 			return fmt.Errorf("'zip' data is %q; want %q", got, want)
+		}
+
+		// Test the map
+		if got, want := instanceState.Attributes["data.zip"], "zap"; got != want {
+			return fmt.Errorf("data[\"zip\"] contains %s; want %s", got, want)
 		}
 
 		return nil
@@ -102,8 +117,16 @@ func testResourceGenericSecret_initialCheck(expectedPath string) resource.TestCh
 
 var testResourceGenericSecret_updateConfig = `
 
+resource "vault_mount" "v1" {
+	path = "secretsv1"
+	type = "kv"
+	options = {
+		version = "1"
+	}
+}
+
 resource "vault_generic_secret" "test" {
-    path = "secretsv1/foo"
+    path = "${vault_mount.v1.path}/foo"
     disable_read = false
     data_json = <<EOT
 {

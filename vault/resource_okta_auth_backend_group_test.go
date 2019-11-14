@@ -2,12 +2,13 @@ package vault
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
-	"github.com/hashicorp/vault/api"
 	"strconv"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
+	"github.com/hashicorp/vault/api"
 )
 
 // This is light on testing as most of the code is covered by `resource_okta_auth_backend_test.go`
@@ -25,6 +26,11 @@ func TestOktaAuthBackendGroup(t *testing.T) {
 					testOktaAuthBackendGroup_InitialCheck,
 					testOktaAuthBackend_GroupsCheck(path, "foo", []string{"one", "two", "default"}),
 				),
+			},
+			{
+				ResourceName:      "vault_okta_auth_backend_group.test",
+				ImportState:       true,
+				ImportStateVerify: true,
 			},
 		},
 	})

@@ -7,11 +7,33 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 	"github.com/hashicorp/vault/api"
 )
+
+func TestLDAPAuthBackend_import(t *testing.T) {
+	path := acctest.RandomWithPrefix("tf-test-ldap-path")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testProviders,
+		CheckDestroy: testLDAPAuthBackendDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testLDAPAuthBackendConfig_basic(path),
+				Check:  testLDAPAuthBackendCheck_attrs(path),
+			},
+			{
+				ResourceName:            "vault_ldap_auth_backend.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"bindpass"},
+			},
+		},
+	})
+}
 
 func TestLDAPAuthBackend_basic(t *testing.T) {
 	path := acctest.RandomWithPrefix("tf-test-ldap-path")
@@ -79,6 +101,10 @@ func testLDAPAuthBackendCheck_attrs(path string) resource.TestCheckFunc {
 			return fmt.Errorf("incorrect mount type: %s", authMount.Type)
 		}
 
+		if instanceState.Attributes["accessor"] != authMount.Accessor {
+			return fmt.Errorf("accessor in state %s does not match accessor returned from vault %s", instanceState.Attributes["accessor"], authMount.Accessor)
+		}
+
 		configPath := "auth/" + endpoint + "/config"
 
 		resp, err := client.Logical().Read(configPath)
@@ -92,21 +118,22 @@ func testLDAPAuthBackendCheck_attrs(path string) resource.TestCheckFunc {
 		}
 
 		attrs := map[string]string{
-			"url":             "url",
-			"starttls":        "starttls",
-			"tls_min_version": "tls_min_version",
-			"tls_max_version": "tls_max_version",
-			"insecure_tls":    "insecure_tls",
-			"certificate":     "certificate",
-			"binddn":          "binddn",
-			"userdn":          "userdn",
-			"userattr":        "userattr",
-			"discoverdn":      "discoverdn",
-			"deny_null_bind":  "deny_null_bind",
-			"upndomain":       "upndomain",
-			"groupfilter":     "groupfilter",
-			"groupdn":         "groupdn",
-			"groupattr":       "groupattr",
+			"url":              "url",
+			"starttls":         "starttls",
+			"tls_min_version":  "tls_min_version",
+			"tls_max_version":  "tls_max_version",
+			"insecure_tls":     "insecure_tls",
+			"certificate":      "certificate",
+			"binddn":           "binddn",
+			"userdn":           "userdn",
+			"userattr":         "userattr",
+			"discoverdn":       "discoverdn",
+			"deny_null_bind":   "deny_null_bind",
+			"upndomain":        "upndomain",
+			"groupfilter":      "groupfilter",
+			"groupdn":          "groupdn",
+			"groupattr":        "groupattr",
+			"use_token_groups": "use_token_groups",
 		}
 
 		for stateAttr, apiAttr := range attrs {
@@ -188,6 +215,7 @@ resource "vault_ldap_auth_backend" "test" {
     bindpass               = "supersecurepassword"
     discoverdn             = false
     deny_null_bind         = true
+    description            = "example"
 }
 `, path)
 

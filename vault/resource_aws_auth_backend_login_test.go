@@ -9,14 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	cleanhttp "github.com/hashicorp/go-cleanhttp"
-	"github.com/hashicorp/terraform/helper/acctest"
-	"github.com/hashicorp/terraform/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
 )
 
 func TestAccAWSAuthBackendLogin_iamIdentity(t *testing.T) {
@@ -24,11 +21,7 @@ func TestAccAWSAuthBackendLogin_iamIdentity(t *testing.T) {
 	roleName := acctest.RandomWithPrefix("tf-test")
 	accessKey, secretKey := getTestAWSCreds(t)
 
-	awsConfig := &aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		HTTPClient:  cleanhttp.DefaultClient(),
-	}
-	sess, err := session.NewSession(awsConfig)
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Errorf("Error creating AWS session: %s", err)
 	}
@@ -66,18 +59,15 @@ func TestAccAWSAuthBackendLogin_iamIdentity(t *testing.T) {
 }
 
 func TestAccAWSAuthBackendLogin_pkcs7(t *testing.T) {
-	if os.Getenv(resource.TestEnvVar) == "" {
-		t.Skip(resource.TestEnvVar + " not set.")
+	if os.Getenv("TF_AWS_META") == "" {
+		t.Skip("Not running on EC2 instance, can't test EC2 auth methods")
 	}
+
 	mountPath := acctest.RandomWithPrefix("tf-test-aws")
 	roleName := acctest.RandomWithPrefix("tf-test")
 	accessKey, secretKey := getTestAWSCreds(t)
 
-	awsConfig := &aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		HTTPClient:  cleanhttp.DefaultClient(),
-	}
-	sess, err := session.NewSession(awsConfig)
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Errorf("Error creating AWS session: %s", err)
 	}
@@ -121,18 +111,15 @@ func TestAccAWSAuthBackendLogin_pkcs7(t *testing.T) {
 }
 
 func TestAccAWSAuthBackendLogin_ec2Identity(t *testing.T) {
-	if os.Getenv(resource.TestEnvVar) == "" {
-		t.Skip(resource.TestEnvVar + " not set.")
+	if os.Getenv("TF_AWS_META") == "" {
+		t.Skip("Not running on EC2 instance, can't test EC2 auth methods")
 	}
+
 	mountPath := acctest.RandomWithPrefix("tf-test-aws")
 	roleName := acctest.RandomWithPrefix("tf-test")
 	accessKey, secretKey := getTestAWSCreds(t)
 
-	awsConfig := &aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		HTTPClient:  cleanhttp.DefaultClient(),
-	}
-	sess, err := session.NewSession(awsConfig)
+	sess, err := session.NewSession(nil)
 	if err != nil {
 		t.Errorf("Error creating AWS session: %s", err)
 	}
@@ -198,7 +185,7 @@ resource "vault_aws_auth_backend_role" "test" {
   backend = "${vault_auth_backend.aws.path}"
   role = "%s"
   auth_type = "iam"
-  bound_iam_principal_arn = "%s"
+  bound_iam_principal_arns = ["%s"]
   policies = ["default"]
   depends_on = ["vault_aws_auth_backend_client.test"]
 }
@@ -232,9 +219,9 @@ resource "vault_aws_auth_backend_role" "test" {
   role = "%s"
   auth_type = "ec2"
   policies = ["default"]
-  bound_ami_id = "%s"
-  bound_account_id = "%s"
-  bound_iam_instance_profile_arn = "%s"
+  bound_ami_ids = ["%s"]
+  bound_account_ids = ["%s"]
+  bound_iam_instance_profile_arns = ["%s"]
 
   depends_on = ["vault_aws_auth_backend_client.test"]
 }
@@ -266,9 +253,9 @@ resource "vault_aws_auth_backend_role" "test" {
   role = "%s"
   auth_type = "ec2"
   policies = ["default"]
-  bound_ami_id = "%s"
-  bound_account_id = "%s"
-  bound_iam_instance_profile_arn = "%s"
+  bound_ami_ids = ["%s"]
+  bound_account_ids = ["%s"]
+  bound_iam_instance_profile_arns = ["%s"]
 
   depends_on = ["vault_aws_auth_backend_client.test"]
 }

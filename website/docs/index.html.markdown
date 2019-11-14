@@ -22,6 +22,14 @@ own security trade-offs and caveats that are covered in the sections that
 follow. Consider these carefully before using this provider within your
 Terraform configuration.
 
+## Best Practices
+
+We recommend that you avoid placing secrets in your Terraform config or state file wherever possible, and if placed there, you take steps to reduce and manage your risk. We have created a practical guide on how to do this with our opensource versions in Best Practices for Using HashiCorp Terraform with HashiCorp Vault:
+
+[![Best Practices for Using HashiCorp Terraform with HashiCorp Vault](https://img.youtube.com/vi/fOybhcbuxJ0/0.jpg)](https://www.youtube.com/watch?v=fOybhcbuxJ0)
+
+This webinar walks you through how to protect secrets when using Terraform with Vault. Additional security measures are available in paid Terraform versions as well.
+
 ## Configuring and Populating Vault
 
 Terraform can be used by the Vault adminstrators to configure Vault and
@@ -99,6 +107,12 @@ variables in order to keep credential information out of the configuration.
   contains one or more certificate files that will be used to validate
   the certificate presented by the Vault server. May be set via the
   `VAULT_CAPATH` environment variable.
+  
+* `auth_login` - (Optional) A configuration block, described below, that 
+  attempts to authenticate using the `auth/<method>/login` path to 
+  aquire a token which Terraform will use. Terraform still issues itself
+  a limited child token using auth/token/create in order to enforce a short
+  TTL and limit exposure.
 
 * `client_auth` - (Optional) A configuration block, described below, that
   provides credentials used by Terraform to authenticate with the Vault
@@ -117,6 +131,27 @@ variables in order to keep credential information out of the configuration.
   and may be set via the `TERRAFORM_VAULT_MAX_TTL` environment variable.
   See the section above on *Using Vault credentials in Terraform configuration*
   for the implications of this setting.
+
+* `max_retries` - (Optional) Used as the maximum number of retries when a 5xx
+  error code is encountered. Defaults to 2 retries and may be set via the
+  `VAULT_MAX_RETRIES` environment variable.
+
+* `namespace` - (Optional) Set the namespace to use. May be set via the
+  `VAULT_NAMESPACE` environment variable. *Available only for Vault Enterprise*.
+  
+The `auth_login` configuration block accepts the following arguments:
+
+* `path` - (Required) The login path of the auth backend. For example, login with
+  approle by setting this path to `auth/approle/login`. Additionally, some mounts use parameters
+  in the URL, like with `userpass`: `auth/userpass/login/:username`. 
+
+* `namespace` - (Optional) The path to the namespace that has the mounted auth method.
+  This defaults to the root namespace. Cannot contain any leading or trailing slashes.
+  *Available only for Vault Enterprise*
+
+* `parameters` - (Optional) A map of key-value parameters to send when authenticating
+  against the auth backend. Refer to [Vault API documentation](https://www.vaultproject.io/api/auth/index.html) for a particular auth method
+  to see what can go here.
 
 The `client_auth` configuration block accepts the following arguments:
 
@@ -151,3 +186,38 @@ EOT
 }
 ```
 
+### Example `auth_login` Usage
+With the `userpass` backend:
+
+```hcl
+variable login_username {}
+variable login_password {}
+
+provider "vault" {
+  auth_login {
+    path = "auth/userpass/login/${var.login_username}"
+    
+    parameters = {
+      password = var.login_password
+    }
+  }
+}
+```
+
+Or, using `approle`:
+
+```hcl
+variable login_approle_role_id {}
+variable login_approle_secret_id {}
+
+provider "vault" {
+  auth_login {
+    path = "auth/approle/login"
+    
+    parameters = {
+      role_id   = var.login_approle_role_id
+      secret_id = var.login_approle_secret_id
+    }
+  }
+}
+```

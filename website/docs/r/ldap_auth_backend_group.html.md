@@ -26,8 +26,8 @@ resource "vault_ldap_auth_backend" "ldap" {
 
 resource "vault_ldap_auth_backend_group" "group" {
     groupname = "dba"
-    policies = ["dba"]
-    backend  = "${vault_ldap_auth_backend.ldap.path}"
+    policies  = ["dba"]
+    backend   = "${vault_ldap_auth_backend.ldap.path}"
 }
 ```
 
@@ -46,3 +46,11 @@ For more details on the usage of each argument consult the [Vault LDAP API docum
 ## Attribute Reference
 
 No additional attributes are exposed by this resource.
+
+## Import
+
+LDAP authentication backend groups can be imported using the `path`, e.g.
+
+```
+$ terraform import vault_ldap_auth_backend_group.foo auth/ldap/groups/foo
+```

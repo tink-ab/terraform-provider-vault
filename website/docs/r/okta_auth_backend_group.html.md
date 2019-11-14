@@ -15,14 +15,14 @@ Provides a resource to create a group in an
 
 ```hcl
 resource "vault_okta_auth_backend" "example" {
-    path = "group_okta"
+    path         = "group_okta"
     organization = "dummy"
 }
 
 resource "vault_okta_auth_backend_group" "foo" {
-    path = "${vault_okta_auth_backend.example.path}"
+    path       = "${vault_okta_auth_backend.example.path}"
     group_name = "foo"
-    policies = ["one", "two"]
+    policies   = ["one", "two"]
 }
 ```
 
@@ -39,3 +39,11 @@ The following arguments are supported:
 ## Attributes Reference
 
 No additional attributes are exposed by this resource.
+
+## Import
+
+Okta authentication backend groups can be imported using the format `backend/groupName` e.g.
+
+```
+$ terraform import vault_okta_auth_backend_group.foo okta/foo
+```

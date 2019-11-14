@@ -75,6 +75,10 @@ The following arguments are supported:
 * `allowed_roles` - (Optional) A list of roles that are allowed to use this
   connection.
 
+* `root_rotation_statements` - (Optional) A list of database statements to be executed to rotate the root user's credentials.
+
+* `data` - (Optional) A map of sensitive data to pass to the endpoint. Useful for templated connection strings.
+
 * `cassandra` - (Optional) A nested block containing configuration options for Cassandra connections.
 
 * `mongodb` - (Optional) A nested block containing configuration options for MongoDB connections.
@@ -178,7 +182,7 @@ Exactly one of the nested blocks of configuration options must be supplied.
 
 * `connection_url` - (Required) A URL containing connection information. See
   the [Vault
-  docs](https://www.vaultproject.io/api/secret/databases/mysql.html#sample-payload)
+  docs](https://www.vaultproject.io/api/secret/databases/mysql-maria.html#sample-payload)
   for an example.
 
 * `username` - (Optional) The username to authenticate with.

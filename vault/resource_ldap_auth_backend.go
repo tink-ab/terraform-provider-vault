@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
 	"github.com/hashicorp/vault/api"
 )
@@ -13,6 +13,121 @@ import (
 const ldapAuthType string = "ldap"
 
 func ldapAuthBackendResource() *schema.Resource {
+	fields := map[string]*schema.Schema{
+		"url": {
+			Type:     schema.TypeString,
+			Required: true,
+		},
+		"starttls": {
+			Type:     schema.TypeBool,
+			Optional: true,
+			Computed: true,
+		},
+		"tls_min_version": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"tls_max_version": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"insecure_tls": {
+			Type:     schema.TypeBool,
+			Optional: true,
+			Computed: true,
+		},
+		"certificate": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"binddn": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"bindpass": {
+			Type:      schema.TypeString,
+			Optional:  true,
+			Computed:  true,
+			Sensitive: true,
+		},
+		"userdn": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"userattr": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+			StateFunc: func(v interface{}) string {
+				return strings.ToLower(v.(string))
+			},
+		},
+		"discoverdn": {
+			Type:     schema.TypeBool,
+			Optional: true,
+			Computed: true,
+		},
+		"deny_null_bind": {
+			Type:     schema.TypeBool,
+			Optional: true,
+			Computed: true,
+		},
+		"upndomain": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"groupfilter": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"groupdn": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"groupattr": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+		"use_token_groups": {
+			Type:     schema.TypeBool,
+			Optional: true,
+			Computed: true,
+		},
+
+		"description": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Computed: true,
+		},
+
+		"path": {
+			Type:     schema.TypeString,
+			Optional: true,
+			ForceNew: true,
+			Default:  "ldap",
+			StateFunc: func(v interface{}) string {
+				return strings.Trim(v.(string), "/")
+			},
+		},
+
+		"accessor": {
+			Type:        schema.TypeString,
+			Computed:    true,
+			Description: "The accessor of the LDAP auth backend",
+		},
+	}
+
+	addTokenFields(fields, &addTokenFieldsConfig{})
+
 	return &schema.Resource{
 		SchemaVersion: 1,
 
@@ -21,108 +136,10 @@ func ldapAuthBackendResource() *schema.Resource {
 		Read:   ldapAuthBackendRead,
 		Delete: ldapAuthBackendDelete,
 		Exists: ldapAuthBackendExists,
-
-		Schema: map[string]*schema.Schema{
-			"url": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"starttls": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"tls_min_version": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"tls_max_version": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"insecure_tls": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"certificate": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"binddn": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"bindpass": {
-				Type:      schema.TypeString,
-				Optional:  true,
-				Computed:  true,
-				Sensitive: true,
-			},
-			"userdn": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"userattr": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-				StateFunc: func(v interface{}) string {
-					return strings.ToLower(v.(string))
-				},
-			},
-			"discoverdn": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"deny_null_bind": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"upndomain": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"groupfilter": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"groupdn": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"groupattr": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-
-			"description": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-
-			"path": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-				Default:  "ldap",
-				StateFunc: func(v interface{}) string {
-					return strings.Trim(v.(string), "/")
-				},
-			},
+		Importer: &schema.ResourceImporter{
+			State: schema.ImportStatePassthrough,
 		},
+		Schema: fields,
 	}
 }
 
@@ -219,6 +236,12 @@ func ldapAuthBackendUpdate(d *schema.ResourceData, meta interface{}) error {
 		data["groupattr"] = v.(string)
 	}
 
+	if v, ok := d.GetOk("use_token_groups"); ok {
+		data["use_token_groups"] = v.(bool)
+	}
+
+	updateTokenFields(d, data, false)
+
 	log.Printf("[DEBUG] Writing LDAP config %q", path)
 	_, err := client.Logical().Write(path, data)
 
@@ -233,7 +256,24 @@ func ldapAuthBackendUpdate(d *schema.ResourceData, meta interface{}) error {
 
 func ldapAuthBackendRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*api.Client)
-	path := ldapAuthBackendConfigPath(d.Id())
+
+	path := d.Id()
+	auths, err := client.Sys().ListAuth()
+	if err != nil {
+		return fmt.Errorf("error reading from Vault: %s", err)
+	}
+
+	d.Set("path", path)
+
+	authMount := auths[strings.Trim(path, "/")+"/"]
+	if authMount == nil {
+		return fmt.Errorf("auth mount %s not present", path)
+	}
+
+	d.Set("description", authMount.Description)
+	d.Set("accessor", authMount.Accessor)
+
+	path = ldapAuthBackendConfigPath(path)
 
 	log.Printf("[DEBUG] Reading LDAP auth backend config %q", path)
 	resp, err := client.Logical().Read(path)
@@ -246,6 +286,10 @@ func ldapAuthBackendRead(d *schema.ResourceData, meta interface{}) error {
 		log.Printf("[WARN] LDAP auth backend config %q not found, removing from state", path)
 		d.SetId("")
 		return nil
+	}
+
+	if err := readTokenFields(d, resp); err != nil {
+		return err
 	}
 
 	d.Set("url", resp.Data["url"])
@@ -263,6 +307,7 @@ func ldapAuthBackendRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("groupfilter", resp.Data["groupfilter"])
 	d.Set("groupdn", resp.Data["groupdn"])
 	d.Set("groupattr", resp.Data["groupattr"])
+	d.Set("use_token_groups", resp.Data["use_token_groups"])
 
 	// `bindpass` cannot be read out from the API
 	// So... if they drift, they drift.

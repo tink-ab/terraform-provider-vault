@@ -1,7 +1,7 @@
 ---
 layout: "vault"
 page_title: "Vault: vault_kubernetes_auth_backend_config resource"
-sidebar_current: "docs-vault-kubernetes-auth-backend-config"
+sidebar_current: "docs-vault-resource-kubernetes-auth-backend-config"
 description: |-
   Manages Kubernetes auth backend configs in Vault.
 ---
@@ -20,8 +20,8 @@ resource "vault_auth_backend" "kubernetes" {
 }
 
 resource "vault_kubernetes_auth_backend_config" "example" {
-  backend   = "${vault_auth_backend.kubernetes.path}"
-  kubernetes_host = "http://example.com:443"
+  backend            = "${vault_auth_backend.kubernetes.path}"
+  kubernetes_host    = "http://example.com:443"
   kubernetes_ca_cert = "-----BEGIN CERTIFICATE-----\nexample\n-----END CERTIFICATE-----"
   token_reviewer_jwt = "ZXhhbXBsZQo="
 }

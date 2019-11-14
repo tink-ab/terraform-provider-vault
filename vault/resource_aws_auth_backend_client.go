@@ -3,9 +3,10 @@ package vault
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
-	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -74,8 +75,6 @@ func awsAuthBackendWrite(d *schema.ResourceData, meta interface{}) error {
 	// if backend comes from the config, it won't have the StateFunc
 	// applied yet, so we need to apply it again.
 	backend := d.Get("backend").(string)
-	accessKey := d.Get("access_key").(string)
-	secretKey := d.Get("secret_key").(string)
 	ec2Endpoint := d.Get("ec2_endpoint").(string)
 	iamEndpoint := d.Get("iam_endpoint").(string)
 	stsEndpoint := d.Get("sts_endpoint").(string)
@@ -84,12 +83,16 @@ func awsAuthBackendWrite(d *schema.ResourceData, meta interface{}) error {
 	path := awsAuthBackendClientPath(backend)
 
 	data := map[string]interface{}{
-		"access_key":                 accessKey,
-		"secret_key":                 secretKey,
 		"endpoint":                   ec2Endpoint,
 		"iam_endpoint":               iamEndpoint,
 		"sts_endpoint":               stsEndpoint,
 		"iam_server_id_header_value": iamServerIDHeaderValue,
+	}
+
+	if d.HasChange("access_key") || d.HasChange("secret_key") {
+		log.Printf("[DEBUG] Updating AWS credentials at %q", path)
+		data["access_key"] = d.Get("access_key").(string)
+		data["secret_key"] = d.Get("secret_key").(string)
 	}
 
 	log.Printf("[DEBUG] Writing AWS auth backend client config to %q", path)
@@ -119,11 +122,14 @@ func awsAuthBackendRead(d *schema.ResourceData, meta interface{}) error {
 		d.SetId("")
 		return nil
 	}
-	idPieces := strings.Split(d.Id(), "/")
-	if len(idPieces) != 4 {
-		return fmt.Errorf("expected %q to have 4 pieces, has %d", d.Id(), len(idPieces))
+
+	// set the backend to the original passed path (without config/client at the end)
+	re := regexp.MustCompile(`^auth/(.*)/config/client$`)
+	if !re.MatchString(d.Id()) {
+		return fmt.Errorf("`config/client` has not been appended to the ID (%s)", d.Id())
 	}
-	d.Set("backend", idPieces[1])
+	d.Set("backend", re.FindStringSubmatch(d.Id())[1])
+
 	d.Set("access_key", secret.Data["access_key"])
 	d.Set("ec2_endpoint", secret.Data["endpoint"])
 	d.Set("iam_endpoint", secret.Data["iam_endpoint"])
