@@ -620,11 +620,17 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 	case "mssql-database-plugin":
 		d.Set("mssql", getConnectionDetailsFromResponse(d, "mssql.0.", resp))
 	case "mysql-database-plugin":
-		d.Set("mysql", getConnectionDetailsFromResponse(d, "mysql.0.", resp))
+		connData := getConnectionDetailsFromResponse(d, "mysql.0.", resp)
+		d.Set("mysql", connData)
+		setCredentialsToData(d, connData)
 	case "mysql-rds-database-plugin":
-		d.Set("mysql_rds", getConnectionDetailsFromResponse(d, "mysql_rds.0.", resp))
+		connData := getConnectionDetailsFromResponse(d, "mysql_rds.0.", resp)
+		d.Set("mysql_rds", connData)
+		setCredentialsToData(d, connData)
 	case "mysql-aurora-database-plugin":
-		d.Set("mysql_aurora", getConnectionDetailsFromResponse(d, "mysql_aurora.0.", resp))
+		connData := getConnectionDetailsFromResponse(d, "mysql_aurora.0.", resp)
+		d.Set("mysql_aurora", connData)
+		setCredentialsToData(d, connData)
 	case "mysql-legacy-database-plugin":
 		d.Set("mysql_legacy", getConnectionDetailsFromResponse(d, "mysql_legacy.0.", resp))
 	case "oracle-database-plugin":
@@ -651,6 +657,17 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 	}
 
 	return nil
+}
+
+func setCredentialsToData(d *schema.ResourceData, connData []map[string]interface{}) {
+	credentials := map[string]interface{}{}
+	if value, ok := connData[0]["username"]; ok {
+		credentials["username"] = value
+	}
+	if value, ok := connData[0]["password"]; ok {
+		credentials["password"] = value
+	}
+	d.Set("data", credentials)
 }
 
 func databaseSecretBackendConnectionUpdate(d *schema.ResourceData, meta interface{}) error {
