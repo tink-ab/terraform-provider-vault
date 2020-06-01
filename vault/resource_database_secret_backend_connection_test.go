@@ -252,6 +252,8 @@ func TestAccDatabaseSecretBackendConnectionWithCredentials_mysql(t *testing.T) {
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.connection_url", connURL),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.username", username),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.password", password),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "data.username", username),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "data.password", password),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.max_open_connections", "2"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.max_idle_connections", "0"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql.0.max_connection_lifetime", "0"),
@@ -269,6 +271,8 @@ func TestAccDatabaseSecretBackendConnectionWithCredentials_mysql(t *testing.T) {
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.connection_url", connURL),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.username", username),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.password", password),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "data.username", username),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "data.password", password),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.max_open_connections", "2"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.max_idle_connections", "0"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "mysql_rds.0.max_connection_lifetime", "0"),
@@ -499,9 +503,6 @@ resource "vault_database_secret_backend_connection" "test" {
   mysql {
 	  connection_url = "%s"
 	  max_connection_lifetime = "%d"
-  }
-
-  data = {
 	  password = "%s"
   }
 }
